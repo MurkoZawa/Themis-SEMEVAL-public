@@ -3,7 +3,7 @@
 
 ### Architecture Overview
 <div align="center">
-  <img src="https://github.com/demon-prin/Themis-SEMEVAL/blob/main/content/Themis%20architecture.jpg" width="35%" height="35%"/>
+  <img src="https://github.com/demon-prin/Themis-SEMEVAL-public/blob/main/content/themispm.png" width="35%" height="35%"/>
 </div><br/>
 
 ### Features
