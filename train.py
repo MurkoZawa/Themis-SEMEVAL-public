@@ -54,19 +54,19 @@ if __name__ == "__main__":
 
 
     class EVALITA_Dataset(Dataset):
-        def __init__(self, annotations_file, img_dir, preprocessor=None, tokenizer=None):
-            file = open(annotations_file, "r", encoding="utf-8")
-            annotations = json.load(file)
+        def __init__(self, annotations, img_dir, preprocessor=None, tokenizer=None):
+            #file = open(annotations_file, "r", encoding="utf-8")
+            #annotations = json.load(file)
 
             #convert to pandas dataframe
             #if the label is "propagandistic" then 1 else 0
             img_labels = []
             for annotation in annotations:
                 if annotation["label"] == "propagandistic":
-                    img_labels.append([annotation["image"], 1, annotation["text"]])
+                    img_labels.append([annotation["img"], 1, annotation["text"]])
                 else:
-                    img_labels.append([annotation["image"], 0, annotation["text"]])
-            self.img_labels = pd.DataFrame(img_labels, columns=["image", "label", "text"])
+                    img_labels.append([annotation["img"], 0, annotation["text"]])
+            self.img_labels = pd.DataFrame(img_labels, columns=["img", "label", "text"])
             self.img_dir = img_dir
             self.imgs_path = self.img_labels.iloc[:, 0]
             self.texts = self.img_labels.iloc[:, 2]
@@ -75,7 +75,7 @@ if __name__ == "__main__":
             self.preprocessor = preprocessor
             self.tokenizer = tokenizer
             tokenizer.pad_token = tokenizer.eos_token
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cuda")
             print(len(self.img_labels))
             print(len(self.imgs_path))
             print(len(self.texts))
@@ -103,15 +103,15 @@ if __name__ == "__main__":
         
 
     class EVALITA_Test_Dataset(Dataset):
-        def __init__(self, annotations_file, img_dir, preprocessor=None, tokenizer=None):
-            file = open(annotations_file, "r", encoding="utf-8")
-            annotations = json.load(file)
+        def __init__(self, annotations, img_dir, preprocessor=None, tokenizer=None):
+            #file = open(annotations_file, "r", encoding="utf-8")
+            #annotations = json.load(file)
 
             #convert to pandas dataframe
             #if the label is "propagandistic" then 1 else 0
             img_labels = []
             for annotation in annotations:
-                    img_labels.append([annotation["image"], annotation["id"], annotation["text"]])
+                    img_labels.append([annotation["img"], annotation["id"], annotation["text"]])
             img_labels = pd.DataFrame(img_labels, columns=["image", "id", "text"])
             self.img_labels = img_labels
             self.img_dir = img_dir
@@ -122,7 +122,7 @@ if __name__ == "__main__":
             self.preprocessor = preprocessor
             self.tokenizer = tokenizer
             tokenizer.pad_token = tokenizer.eos_token
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cuda")
             print(len(self.ids))
             print(len(self.imgs_path))
             print(len(self.texts))
@@ -149,38 +149,56 @@ if __name__ == "__main__":
             return image, id, text
         
     
+    # Caricamento di Themis, tokenizer, processor
     themis, tokenizer, processor = get_Themis(
-        name_llm = name_llm,
-        name_img_embed = name_img_embed,
-        use_lora = use_lora,
-        is_pythia = True if "pythia" in name_llm else False,
-        lora_alpha = lora_alpha,
-        lora_r = lora_r,
-        lora_dropout = lora_dropout,
-        merge_tokens = merge_tokens
+        name_llm=name_llm,
+        name_img_embed=name_img_embed,
+        use_lora=use_lora,
+        is_pythia=True if "pythia" in name_llm else False,
+        lora_alpha=lora_alpha,
+        lora_r=lora_r,
+        lora_dropout=lora_dropout,
+        merge_tokens=merge_tokens
     )
     themis.to("cuda")
 
+    # Funzione per caricare i dati da un file JSONL
+    def load_jsonl_file(file_path):
+        annotations = []
+        with open(file_path, 'r', encoding='utf-8') as file:
+            for line in file:
+                try:
+                    annotation = json.loads(line.strip())  # Decodifica ogni riga come JSON
+                    annotations.append(annotation)
+                except json.JSONDecodeError as e:
+                    print(f"Errore nel decodificare la riga: {e}")
+        return annotations
+
+    # Caricamento dei dataset
+    annotations_train = load_jsonl_file("annotations/subtask2b/train.jsonl")
     dataset_train = EVALITA_Dataset(
-        annotations_file="annotations/subtask2b/train.json",
+        annotations=annotations_train,
         img_dir="images/2b/train",
         preprocessor=processor,
         tokenizer=tokenizer
     )
 
+    annotations_val = load_jsonl_file("annotations/subtask2b/val.jsonl")
     dataset_val = EVALITA_Dataset(
-        annotations_file="annotations/subtask2b/val.json",
+        annotations=annotations_val,
         img_dir="images/2b/val",
         preprocessor=processor,
         tokenizer=tokenizer
     )
 
-    dataset_test = EVALITA_Test_Dataset(    
-        annotations_file="annotations/subtask2b/dev_unlabeled.json",
+    annotations_test = load_jsonl_file("annotations/subtask2b/dev_unlabeled.jsonl")
+    dataset_test = EVALITA_Test_Dataset(
+        annotations=annotations_test,
         img_dir="images/2b/dev",
         preprocessor=processor,
         tokenizer=tokenizer
     )
+
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True,generator=torch.Generator(device='cuda'))
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False,generator=torch.Generator(device='cuda'))
     dataloader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False,generator=torch.Generator(device='cuda'))
@@ -206,9 +224,9 @@ if __name__ == "__main__":
                 outputs = themis(images, texts)
                 loss_val = loss(outputs.float(), labels.float().unsqueeze(1))
                 running_loss += loss_val.item()
-                accumulated_labels.extend(labels.cpu().numpy())
-                accumulated_preds.extend(outputs.cpu().detach().numpy())
-            torch.cuda.empty_cache()
+                accumulated_labels.extend(labels.cuda().numpy())
+                accumulated_preds.extend(outputs.cuda().detach().numpy())
+            #torch.cuda.empty_cache()
             epoch_loss = running_loss / len(dataloader_val)
             print(f"Validation loss: {epoch_loss}")
             accumulated_preds = [1 if i > 0.5 else 0 for i in accumulated_preds]
@@ -240,7 +258,7 @@ if __name__ == "__main__":
             optimizer.step()
             running_loss += loss_val.item()
         return running_loss 
-    torch.cuda.empty_cache()
+    #torch.cuda.empty_cache()
     #torch.nn.utils.clip_grad_norm_(themis.parameters(), 1.0)
     themis.train()
     best_f1 = 0
@@ -257,7 +275,7 @@ if __name__ == "__main__":
         best_f1=validate(themis, dataloader_val, loss,running_loss, best_f1=best_f1)
         
 
-        torch.cuda.empty_cache()
+       # torch.cuda.empty_cache()
 
 
 
