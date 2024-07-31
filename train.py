@@ -62,7 +62,7 @@ if __name__ == "__main__":
             #if the label is "propagandistic" then 1 else 0
             img_labels = []
             for annotation in annotations:
-                img_labels.append([annotation["id"], annotation["2_way_label"], annotation["clean_title"]])
+                img_labels.append([annotation["id"] + ".jpg", annotation["2_way_label"], annotation["clean_title"]])
             self.img_labels = pd.DataFrame(img_labels, columns=["id", "2_way_label", "clean_title"])
             self.img_dir = img_dir
             self.imgs_path = self.img_labels.iloc[:, 0]
@@ -108,11 +108,11 @@ if __name__ == "__main__":
             #if the label is "propagandistic" then 1 else 0
             img_labels = []
             for annotation in annotations:
-                    img_labels.append([annotation["img"], annotation["id"], annotation["text"]])
-            img_labels = pd.DataFrame(img_labels, columns=["image", "id", "text"])
+                    img_labels.append([annotation["id"] + ".jpg", annotation["id"], annotation["clean_title"]])
+            img_labels = pd.DataFrame(img_labels, columns=["id", "id", "clean_title"])
             self.img_labels = img_labels
             self.img_dir = img_dir
-            self.imgs_path = self.img_labels.iloc[:, 0]
+            self.imgs_path = self.img_labels.iloc[:, 0] + ".jpg"
             self.texts = self.img_labels.iloc[:, 2]
             self.ids = self.img_labels.iloc[:, 1]
             self.texts = [clean_text(text) for text in self.texts]
@@ -146,6 +146,9 @@ if __name__ == "__main__":
             return image, id, text
         
     
+    import json
+    import pandas as pd
+
     # Caricamento di Themis, tokenizer, processor
     themis, tokenizer, processor = get_Themis(
         name_llm=name_llm,
@@ -159,42 +162,41 @@ if __name__ == "__main__":
     )
     themis.to("cuda")
 
-    # Funzione per caricare i dati da un file JSONL
-    def load_jsonl_file(file_path):
-        annotations = []
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                try:
-                    annotation = json.loads(line.strip())  # Decodifica ogni riga come JSON
-                    annotations.append(annotation)
-                except json.JSONDecodeError as e:
-                    print(f"Errore nel decodificare la riga: {e}")
+    # Funzione per caricare i dati da un file TSV
+    def load_tsv_file(file_path):
+        try:
+            df = pd.read_csv(file_path, sep='\t')
+            annotations = df.to_dict(orient='records')
+        except Exception as e:
+            print(f"Errore nel caricare il file TSV: {e}")
+            annotations = []
         return annotations
 
     # Caricamento dei dataset
-    annotations_train = load_jsonl_file("annotations/subtask2b/train.jsonl")
+    annotations_train = load_tsv_file("Fakeddit/annotations/subtask2b/train.tsv")
     dataset_train = EVALITA_Dataset(
         annotations=annotations_train,
-        img_dir="images/2b/train",
+        img_dir="Fakeddit/images/2b/train",
         preprocessor=processor,
         tokenizer=tokenizer
     )
 
-    annotations_val = load_jsonl_file("annotations/subtask2b/val.jsonl")
+    annotations_val = load_tsv_file("Fakeddit/annotations/subtask2b/val.tsv")
     dataset_val = EVALITA_Dataset(
         annotations=annotations_val,
-        img_dir="images/2b/val",
+        img_dir="Fakeddit/images/2b/val",
         preprocessor=processor,
         tokenizer=tokenizer
     )
 
-    annotations_test = load_jsonl_file("annotations/subtask2b/dev_unlabeled.jsonl")
+    annotations_test = load_tsv_file("Fakeddit/annotations/subtask2b/dev_unlabeled.tsv")
     dataset_test = EVALITA_Test_Dataset(
         annotations=annotations_test,
-        img_dir="images/2b/dev",
+        img_dir="Fakeddit/images/2b/dev",
         preprocessor=processor,
         tokenizer=tokenizer
     )
+
 
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True,generator=torch.Generator(device='cuda'))
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False,generator=torch.Generator(device='cuda'))
