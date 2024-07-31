@@ -62,11 +62,8 @@ if __name__ == "__main__":
             #if the label is "propagandistic" then 1 else 0
             img_labels = []
             for annotation in annotations:
-                if annotation["label"] == "propagandistic":
-                    img_labels.append([annotation["img"], 1, annotation["text"]])
-                else:
-                    img_labels.append([annotation["img"], 0, annotation["text"]])
-            self.img_labels = pd.DataFrame(img_labels, columns=["img", "label", "text"])
+                img_labels.append([annotation["id"], annotation["2_way_label"], annotation["clean_title"]])
+            self.img_labels = pd.DataFrame(img_labels, columns=["id", "2_way_label", "clean_title"])
             self.img_dir = img_dir
             self.imgs_path = self.img_labels.iloc[:, 0]
             self.texts = self.img_labels.iloc[:, 2]
@@ -226,7 +223,7 @@ if __name__ == "__main__":
                 running_loss += loss_val.item()
                 accumulated_labels.extend(labels.cuda().numpy())
                 accumulated_preds.extend(outputs.cuda().detach().numpy())
-            #torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             epoch_loss = running_loss / len(dataloader_val)
             print(f"Validation loss: {epoch_loss}")
             accumulated_preds = [1 if i > 0.5 else 0 for i in accumulated_preds]
@@ -258,7 +255,7 @@ if __name__ == "__main__":
             optimizer.step()
             running_loss += loss_val.item()
         return running_loss 
-    #torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
     #torch.nn.utils.clip_grad_norm_(themis.parameters(), 1.0)
     themis.train()
     best_f1 = 0
@@ -275,7 +272,7 @@ if __name__ == "__main__":
         best_f1=validate(themis, dataloader_val, loss,running_loss, best_f1=best_f1)
         
 
-       # torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
 
 

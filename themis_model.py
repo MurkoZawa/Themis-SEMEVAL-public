@@ -102,7 +102,7 @@ class Themis(nn.Module):
     
     
 def get_Themis(
-        name_llm = "microsoft/phi-1_5",
+        name_llm = "distilgpt2",
         name_img_embed = "openai/clip-vit-base-patch32",
         use_lora = False,
         is_pythia = False,
