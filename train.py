@@ -108,11 +108,11 @@ if __name__ == "__main__":
             #if the label is "propagandistic" then 1 else 0
             img_labels = []
             for annotation in annotations:
-                    img_labels.append([annotation["id"] + ".jpg", annotation["id"], annotation["clean_title"]])
-            img_labels = pd.DataFrame(img_labels, columns=["id", "id", "clean_title"])
+                    img_labels.append([annotation["id"] + ".jpg", annotation["2_way_label"], annotation["clean_title"]])
+            img_labels = pd.DataFrame(img_labels, columns=["id", "2_way_label", "clean_title"])
             self.img_labels = img_labels
             self.img_dir = img_dir
-            self.imgs_path = self.img_labels.iloc[:, 0] + ".jpg"
+            self.imgs_path = self.img_labels.iloc[:, 0] 
             self.texts = self.img_labels.iloc[:, 2]
             self.ids = self.img_labels.iloc[:, 1]
             self.texts = [clean_text(text) for text in self.texts]
@@ -214,7 +214,9 @@ if __name__ == "__main__":
 
 
 
-    def validate(themis, dataloader_val, loss,running_loss, accumulated_labels=[], accumulated_preds=[], best_f1=0):
+    def validate(themis, dataloader_val, loss, running_loss, best_f1=0):
+        accumulated_labels = []
+        accumulated_preds = []
         with torch.no_grad():
             for images, labels, texts in tqdm(dataloader_val):
                 images = images.to("cuda")
@@ -223,8 +225,11 @@ if __name__ == "__main__":
                 outputs = themis(images, texts)
                 loss_val = loss(outputs.float(), labels.float().unsqueeze(1))
                 running_loss += loss_val.item()
-                accumulated_labels.extend(labels.cuda().numpy())
-                accumulated_preds.extend(outputs.cuda().detach().numpy())
+                accumulated_labels.extend(labels.to("cpu").numpy())
+                accumulated_preds.extend(outputs.to("cpu").detach().numpy())
+            
+            print(f'Len labels: {len(accumulated_labels)}')
+            print(f'Len pred: {len(accumulated_preds)}')
             torch.cuda.empty_cache()
             epoch_loss = running_loss / len(dataloader_val)
             print(f"Validation loss: {epoch_loss}")
@@ -236,7 +241,7 @@ if __name__ == "__main__":
             print(f"Accuracy: {acc} || Precision: {prec} || Recall: {rec} || F1: {f1}")
             if f1 > best_f1:
                 best_f1 = f1
-                path_out = "outputsv2/"+name_llm+"_"+name_img_embed+"_"+str(merge_tokens)+"_"+str(lora_alpha)+"_"+str(lora_r)+"_"+str(lora_dropout)+"_"+str(use_lora)+str(epochs)+"_best.pt"
+                path_out = "Fakeddit/outputsv2/"+name_llm+"_"+name_img_embed+"_"+str(merge_tokens)+"_"+str(lora_alpha)+"_"+str(lora_r)+"_"+str(lora_dropout)+"_"+str(use_lora)+str(epochs)+"_best.pt"
                 if not os.path.exists(os.path.dirname(path_out)):
                     os.makedirs(os.path.dirname(path_out))
                 torch.save(themis.state_dict(), path_out)
@@ -269,11 +274,8 @@ if __name__ == "__main__":
         print("Evaluating...")
         scheduler.step()
         running_loss = 0.0
-        accumulated_labels = []
-        accumulated_preds = []
         best_f1=validate(themis, dataloader_val, loss,running_loss, best_f1=best_f1)
         
-
         torch.cuda.empty_cache()
 
 
