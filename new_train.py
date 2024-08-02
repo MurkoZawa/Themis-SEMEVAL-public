@@ -13,8 +13,10 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from tqdm import tqdm
 from themis_model import get_Themis
 import re
+import warnings
+warnings.filterwarnings(action="ignore")
 
-from datasets import get_dataset, fakeddit_load_annotations_file, Fakeddit_Dataset
+from datasets import get_dataset, Fakeddit_Dataset
 
 if __name__ == "__main__":
     #read arguments
@@ -28,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument("--lora_r", type=int)
     parser.add_argument("--lora_dropout", type=float)
     parser.add_argument("--use_lora", type=bool)
-    parser.add_argument("--number_of_epochs", type=int, default=10)
+    parser.add_argument("--number_of_epochs", type=int, default=5)
     parser.add_argument("--n_tokens", type=int, default=128)
     parser.add_argument("--device", type=str, default="cuda")
 
@@ -61,13 +63,14 @@ if __name__ == "__main__":
     )
     themis.to(device)
 
+    dataset_name = "Fakeddit_2000"
     dataset_train = get_dataset(Fakeddit_Dataset, n_tokens, processor, tokenizer, 
-                "Fakeddit/annotations/train.tsv",
-                "Fakeddit/images/train")
+                f"{dataset_name}/annotations/train.tsv",
+                f"{dataset_name}/images/train")
     
     dataset_val = get_dataset(Fakeddit_Dataset, n_tokens, processor, tokenizer, 
-                "Fakeddit/annotations/val.tsv",
-                "Fakeddit/images/val")
+                f"{dataset_name}/annotations/val.tsv",
+                f"{dataset_name}/images/val")
     
     
 
@@ -75,7 +78,7 @@ if __name__ == "__main__":
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False,generator=torch.Generator(device=device))
 
     loss = nn.BCELoss()
-    lr = 0.0001
+    lr = 0.00001
     optimizer = optim.AdamW(themis.parameters(), lr=lr, weight_decay=0.01)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
@@ -108,7 +111,7 @@ if __name__ == "__main__":
             print(f"Accuracy: {acc} || Precision: {prec} || Recall: {rec} || F1: {f1}")
             if f1 > best_f1:
                 best_f1 = f1
-                path_out = "Fakeddit/outputsv2/"+name_llm+"_"+name_img_embed+"_"+str(merge_tokens)+"_"+str(lora_alpha)+"_"+str(lora_r)+"_"+str(lora_dropout)+"_"+str(use_lora)+str(epochs)+"_best.pt"
+                path_out = f"{dataset_name}/outputsv2/"+name_llm+"_"+name_img_embed+"_"+str(merge_tokens)+"_"+str(lora_alpha)+"_"+str(lora_r)+"_"+str(lora_dropout)+"_"+str(use_lora)+str(epochs)+"_best.pt"
                 if not os.path.exists(os.path.dirname(path_out)):
                     os.makedirs(os.path.dirname(path_out))
                 torch.save(themis.state_dict(), path_out)

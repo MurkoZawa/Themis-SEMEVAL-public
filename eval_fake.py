@@ -8,13 +8,15 @@ from torchvision.io import read_image
 from torch.utils.data import Dataset, DataLoader
 import json 
 from PIL import Image
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
 from tqdm import tqdm
 from themis_model import get_Themis
 import re
+import warnings
+warnings.filterwarnings(action="ignore")
 
-from datasets import get_dataset, fakeddit_load_annotations_file, Fakeddit_Dataset
+from datasets import get_dataset, Fakeddit_Dataset
 
 if __name__ == "__main__":
 
@@ -58,10 +60,12 @@ if __name__ == "__main__":
         merge_tokens = merge_tokens
     )
     themis.to("cuda")
-    
+
+    dataset_name = "Fakeddit"
+
     dataset_test = get_dataset(Fakeddit_Dataset, n_tokens, processor, tokenizer, 
-                "Fakeddit/annotations/test.tsv",
-                "Fakeddit/images/test")
+                f"{dataset_name}/annotations/test.tsv",
+                f"{dataset_name}/images/test")
     
     dataloader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False,generator=torch.Generator(device='cuda'))
 
@@ -90,8 +94,10 @@ if __name__ == "__main__":
         prec = precision_score(accumulated_labels, preds)
         rec = recall_score(accumulated_labels, preds)
         f1 = f1_score(accumulated_labels, preds)
+        conf_matr = confusion_matrix(accumulated_labels, preds)
         print(f"Test loss: {total_loss}")
         print(f"Accuracy: {acc} || Precision: {prec} || Recall: {rec} || F1: {f1}")
+        print(conf_matr)
         exit()
         #save the predictions to a json file
         json_preds = []
