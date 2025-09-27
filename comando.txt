@@ -1,7 +1,10 @@
 python train.py --name_llm "HuggingFaceTB/SmolLM-135M" --name_img_embed "openai/clip-vit-base-patch32" --batch_size 8 --use_lora True --lora_alpha 16 --lora_r 16 --lora_dropout 0.4 --number_of_epochs 10
 
+python train_stepwise.py --name_llm "HuggingFaceTB/SmolLM-135M" --name_img_embed "openai/clip-vit-base-patch32" --batch_size 8 --use_lora True --lora_alpha 16 --lora_r 16 --lora_dropout 0.4 --number_of_epochs 1 --stepwise_samples 10000
+
 python eval.py --name_llm "HuggingFaceTB/SmolLM-135M" --name_img_embed "openai/clip-vit-base-patch32" --batch_size 8 --model_path "DGM4\DGM4\HuggingFaceTB\SmolLM-135M_openai\clip-vit-base-patch32_None_16_16_0.4_True10_best.pt" --use_lora True --lora_alpha 16 --lora_r 16 --lora_dropout 0.4
 
 python train_6L.py --name_llm "TinyLlama/TinyLlama-1.1B-Chat-v1.0" --name_img_embed "openai/clip-vit-base-patch32" --batch_size 8 --use_lora True --lora_alpha 16 --lora_r 16 --lora_dropout 0.4 --number_of_epochs 30
 
 python eval_6L.py --name_llm "TinyLlama/TinyLlama-1.1B-Chat-v1.0" --name_img_embed "openai/clip-vit-base-patch32" --batch_size 8 --model_path "fakeddit\outputsv2\TinyLlama\TinyLlama-1.1B-Chat-v1.0_openai\clip-vit-base-patch32_None_16_16_0.4_True30_best.pt" --use_lora True --lora_alpha 16 --lora_r 16 --lora_dropout 0.4
+
