@@ -26,19 +26,23 @@ pip install -r requirements.txt
 
 ### [STEP 2]  Select Model Configuration
 
-The full list of the currently supported model configurations can be found in the train_all.bat file while train_search.bat highlights the full set of possible hyperparameters
+The full list of the currently supported model configurations can be found in the train_all.bat file while train_search.bat highlights the full set of possible hyperparameters.
 
 ### [STEP 3]  Edit the train.py to match your data
 
-A small usage example suitable for the SEMEVAL challenge data is provided in the "train.py" file feel free to modify it according to your needs 
+A small usage example suitable for the SEMEVAL challenge data is provided in the "train.py" file feel free to modify it according to your needs.
 
 ### [STEP 4]  Train a Themis model
 
-After selecting hyperparameters, model configuration, and train file configuration you can find the trained models under the "outputs" folder
+After selecting hyperparameters, model configuration, and train file configuration you can find the trained models under the "outputs" folder. If you want to train the model stepwise, run the train_stepwise.py script.
 
 ### [STEP 5]  Test a Themis model
 
-After training your model you can evaluate your model by using the "eval.py" file, be sure to follow the same dataset structure of your "train.py" file, small usage examples are provided in the "eval_all.bat" file
+After training your model you can evaluate your model by using the "eval.py" file, be sure to follow the same dataset structure of your "train.py" file, small usage examples are provided in the "eval_all.bat" file. In comando.txt, you can see how to launch training and testing.
+
+### [STEP 6]  Use HAMMER
+
+Go to the HAMMER repository (https://github.com/rshaojimmy/MultiModal-DeepFake) and follow the guide to use it. Put the train_stepwise_HAMMER.py script inside the directory if you want to launch a stepwise training. In comando_HAMMER.txt, you can see how to launch training and testing.
 
 ## License
 
