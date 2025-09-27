@@ -8,11 +8,20 @@ from torchvision.io import read_image
 from torch.utils.data import Dataset, DataLoader
 import json 
 from PIL import Image
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_auc_score, roc_curve
+from scipy.interpolate import interp1d
+from scipy.optimize import brentq
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 from themis_model import get_Themis
 import re
+
+import warnings
+warnings.filterwarnings(action="ignore")
+
+from datasets import get_dataset, DGM4_Dataset, dgm4_load_annotations_file, MFD_Dataset, mfd_load_annotations_file, Fakeddit_Dataset, fakeddit_load_annotations_file
 
 if __name__ == "__main__":
 
@@ -29,186 +38,140 @@ if __name__ == "__main__":
     parser.add_argument("--use_lora", type=bool)
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--n_tokens", type=int, default=128)
+    parser.add_argument("--set_params", type=bool, default=False)
+    parser.add_argument("--save_preds", type=bool, default=False)
 
+    args = parser.parse_args()
+    name_llm = args.name_llm
+    name_img_embed = args.name_img_embed
+    batch_size = args.batch_size
+    merge_tokens = args.merge_tokens if args.merge_tokens != 0 else None
+    lora_alpha = args.lora_alpha
+    lora_r = args.lora_r
+    lora_dropout = args.lora_dropout
+    use_lora = args.use_lora
+    model_path = args.model_path
+    n_tokens = args.n_tokens
+    set_params = args.set_params
+    save_preds = args.save_preds
 
-    name_llm = parser.parse_args().name_llm
-    name_img_embed = parser.parse_args().name_img_embed
-    batch_size = parser.parse_args().batch_size
-    merge_tokens = parser.parse_args().merge_tokens
-    if merge_tokens == 0:
-        merge_tokens = None
-    lora_alpha = parser.parse_args().lora_alpha
-    lora_r = parser.parse_args().lora_r
-    lora_dropout = parser.parse_args().lora_dropout
-    use_lora = parser.parse_args().use_lora
-    model_path = parser.parse_args().model_path
-    n_tokens = parser.parse_args().n_tokens
-
-    def clean_text(text):
-        if text == "" or text == None:
-            return "Blank"
-        # Remove escape sequences and replace "\\n" with a space
-        cleaned_text = re.sub(r'\\n', ' ', text)
-        # Remove any other special characters or patterns as needed
-        cleaned_text = re.sub(r'[^A-Za-z0-9\s]', '', cleaned_text)
-        return cleaned_text
-
-
-    class EVALITA_Dataset(Dataset):
-        def __init__(self, annotations_file, img_dir, preprocessor=None, tokenizer=None):
-            file = open(annotations_file, "r", encoding="utf-8")
-            annotations = json.load(file)
-
-            #convert to pandas dataframe
-            #if the label is "propagandistic" then 1 else 0
-            img_labels = []
-            for annotation in annotations:
-                if annotation["label"] == "propagandistic":
-                    img_labels.append([annotation["image"], 1, annotation["text"]])
-                else:
-                    img_labels.append([annotation["image"], 0, annotation["text"]])
-            self.img_labels = pd.DataFrame(img_labels, columns=["image", "label", "text"])
-            self.img_dir = img_dir
-            self.imgs_path = self.img_labels.iloc[:, 0]
-            self.texts = self.img_labels.iloc[:, 2]
-            self.texts = [clean_text(text) for text in self.texts]
-
-            self.preprocessor = preprocessor
-            self.tokenizer = tokenizer
-            tokenizer.pad_token = tokenizer.eos_token
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            print(len(self.img_labels))
-            print(len(self.imgs_path))
-            print(len(self.texts))
-        def __len__(self):
-            return len(self.img_labels)
-        
-        def __getitem__(self, idx):
-            img_path = os.path.join(self.img_dir, self.imgs_path[idx])
-            image = Image.open(img_path).convert("RGB")
-            label = self.img_labels.iloc[idx, 1]
-            text = self.texts[idx]
-            if self.tokenizer:
-                if text == "" or text == None:
-                    text = "Blank"
-                text = self.tokenizer(text, return_tensors="pt", padding='max_length', truncation=True, return_attention_mask=False, max_length=n_tokens)
-            if self.preprocessor:
-                image = self.preprocessor(images=image, return_tensors="pt")
-            
-            return image, label, text
-        
-
-    class EVALITA_Test_Dataset(Dataset):
-        def __init__(self, annotations_file, img_dir, preprocessor=None, tokenizer=None):
-            file = open(annotations_file, "r", encoding="utf-8")
-            annotations = json.load(file)
-
-            #convert to pandas dataframe
-            #if the label is "propagandistic" then 1 else 0
-            img_labels = []
-            for annotation in annotations:
-                    img_labels.append([annotation["image"], annotation["id"], annotation["text"]])
-            img_labels = pd.DataFrame(img_labels, columns=["image", "id", "text"])
-            self.img_labels = img_labels
-            self.img_dir = img_dir
-            self.imgs_path = self.img_labels.iloc[:, 0]
-            self.texts = self.img_labels.iloc[:, 2]
-            self.ids = self.img_labels.iloc[:, 1]
-            self.texts = [clean_text(text) for text in self.texts]
-            self.preprocessor = preprocessor
-            self.tokenizer = tokenizer
-            tokenizer.pad_token = tokenizer.eos_token
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            print(len(self.ids))
-            print(len(self.imgs_path))
-            print(len(self.texts))
-        def __len__(self):
-            return len(self.img_labels)
-        
-        def __getitem__(self, idx):
-            img_path = os.path.join(self.img_dir, self.imgs_path[idx])
-            image = Image.open(img_path).convert("RGB")
-            id = self.ids[idx]
-            text = self.texts[idx]
-            if self.tokenizer:
-                if text == "" or text == None:
-                    text = "Blank"
-                text = self.tokenizer(text, return_tensors="pt", padding='max_length', truncation=True, return_attention_mask=False, max_length=128)
-            if self.preprocessor:
-                image = self.preprocessor(images=image, return_tensors="pt")
-            
-            return image, id, text
-        
+    if set_params:
+        p = model_path.split('\\')[-1].split('_')
+        lora_alpha = int(p[2])
+        lora_r = int(p[3])
+        lora_dropout = float(p[4])
+        use_lora = True if 'True' in p[5] else False 
+    
+    model_dir = ''
+    for i in model_path.split('\\')[:-1]:
+        model_dir += i + '\\'
+   
     themis, tokenizer, processor = get_Themis(
-        name_llm = name_llm,
-        name_img_embed = name_img_embed,
-        use_lora = use_lora,
-        is_pythia = True if "pythia" in name_llm else False,
-        lora_alpha = lora_alpha,
-        lora_r = lora_r,
-        lora_dropout = lora_dropout,
-        merge_tokens = merge_tokens
+        name_llm=name_llm,
+        name_img_embed=name_img_embed,
+        use_lora=use_lora,
+        is_pythia=True if "pythia" in name_llm else False,
+        lora_alpha=lora_alpha,
+        lora_r=lora_r,
+        lora_dropout=lora_dropout,
+        merge_tokens=merge_tokens
     )
     themis.to("cuda")
+
+    base_dir = "MFD"
+    dataset_test = get_dataset(MFD_Dataset, mfd_load_annotations_file, n_tokens, processor, tokenizer, 
+                "MFD/test.tsv",
+                "MFD/test")
     
+    dataloader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, generator=torch.Generator(device='cuda'))
 
-    dataset_train = EVALITA_Dataset(
-        annotations_file="annotations/subtask2b/train.json",
-        img_dir="images/2b/train",
-        preprocessor=processor,
-        tokenizer=tokenizer
-    )
-
-    dataset_val = EVALITA_Dataset(
-        annotations_file="annotations/subtask2b/val.json",
-        img_dir="images/2b/val",
-        preprocessor=processor,
-        tokenizer=tokenizer
-    )
-
-    dataset_test = EVALITA_Test_Dataset(    
-        annotations_file="annotations/subtask2b/dev_unlabeled.json",
-        img_dir="images/2b/dev",
-        preprocessor=processor,
-        tokenizer=tokenizer
-    )
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True,generator=torch.Generator(device='cuda'))
-    dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False,generator=torch.Generator(device='cuda'))
-    dataloader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False,generator=torch.Generator(device='cuda'))
-
-
-  
-    #extract the predictions for the test set
-    themis.load_state_dict(torch.load(model_path,map_location='cpu'))
+    # Extract the predictions for the test set
+    themis.load_state_dict(torch.load(model_path, map_location='cpu'))
     preds = []
-    ids = []
+    accumulated_labels = []
+    running_loss = 0
+    paths = []
+    loss = nn.BCELoss()
+
     with torch.no_grad():
-        for images, id, text in tqdm(dataloader_test):
+        for images, labels, text, batch_paths in tqdm(dataloader_test):
             images = images.to("cuda")
             text = text.to("cuda")
-            #print(text)
+            labels = labels.to("cuda")
+
             outputs = themis(images, text)
+
+            loss_test = loss(outputs.float(), labels.float().unsqueeze(1))
+            running_loss += loss_test.item()
             preds.extend(outputs.cpu().detach().numpy())
-            ids.extend(id)
-        preds = [1 if i > 0.5 else 0 for i in preds]
-        #convert the predictions to the format required by the competition
-        #"propagandistic" if the prediction is 1 else "non_propagandistic"
-        preds = ["propagandistic" if i == 1 else "non_propagandistic" for i in preds]
-        #save the predictions to a json file
-        json_preds = []
-        for id,label in zip(ids,preds):
-            current={
-                "id": id,
-                "label": label
-            }
-            json_preds.append(current)
-        #remove / or \ from the name of the model and the image embedder
-        name_llm = name_llm.replace("/","_").replace("\\","_")
-        name_img_embed = name_img_embed.replace("/","_").replace("\\","_")
+            accumulated_labels.extend(labels.cpu().numpy())
+            paths.extend(batch_paths)
+        total_loss = running_loss / len(dataloader_test)
+        preds_binary = [1 if i > 0.5 else 0 for i in preds]
 
-        name_out = "outputs/predictions_"+name_llm+"_"+name_img_embed+"_"+str(batch_size)+"_"+str(merge_tokens)+"_"+str(lora_alpha)+"_"+str(lora_r)+"_"+str(lora_dropout)+"_"+str(use_lora)+".json"
-        with open(name_out, "w", encoding="utf-8") as f:
-            json.dump(json_preds, f, indent=4, ensure_ascii=False)
+        if save_preds:
+            datas = [
+                {"label": label, "pred": pred, "path": path}
+                for label, pred, path in zip(accumulated_labels, preds_binary, paths)
+            ]
+
+            with open('pred.txt', "w") as output:
+                output.write(str(datas))
+
+        # Metrics calculations
+        acc = accuracy_score(accumulated_labels, preds_binary)
+        prec0 = precision_score(accumulated_labels, preds_binary, pos_label=0)
+        rec0 = recall_score(accumulated_labels, preds_binary, pos_label=0)
+        f10 = f1_score(accumulated_labels, preds_binary, pos_label=0)
+        prec1 = precision_score(accumulated_labels, preds_binary, pos_label=1)
+        rec1 = recall_score(accumulated_labels, preds_binary, pos_label=1)
+        f11 = f1_score(accumulated_labels, preds_binary, pos_label=1)
+        macro_f1 = f1_score(accumulated_labels, preds_binary, average='macro')
+        conf_matr = confusion_matrix(accumulated_labels, preds_binary)
+
+        # AUC calculation
+        auc = roc_auc_score(accumulated_labels, preds)
+
+        # ROC Curve and EER Calculation
+        fpr, tpr, _ = roc_curve(accumulated_labels, preds, pos_label=1)
+        eer = brentq(lambda x: 1. - x - interp1d(fpr, tpr)(x), 0., 1.)
+
+        # Logging metrics
+        print(f"Test loss: {total_loss}")
+        print(f"Accuracy: {acc}")
+        print(f"Label: 0 || Precision: {prec0} || Recall: {rec0} || F1: {f10}")
+        print(f"Label: 1 || Precision: {prec1} || Recall: {rec1} || F1: {f11}")
+        print(f"Macro-F1: {macro_f1}")
+        print(f"AUC: {auc}")
+        print(f"EER: {eer}")
+        print(conf_matr)
+
+        metrics = {
+            "loss": total_loss,
+            "accuracy": acc,
+            "precision_0": prec0,
+            "precision_1": prec1,
+            "recall_0": rec0,
+            "recall_1": rec1,
+            "F1_0": f10,
+            "F1_1": f11,
+            "macro_F1": macro_f1,
+            "AUC": auc,
+            "EER": eer
+        }
+
+        # Save confusion matrix
+        ax = plt.subplot()
+        sns.heatmap(conf_matr, annot=True, fmt='g', ax=ax)
+        ax.set_xlabel('Predicted labels')
+        ax.set_ylabel('True labels')
+        ax.set_title('Confusion Matrix')
+        ax.xaxis.set_ticklabels(['unreliable', 'reliable'])
+        ax.yaxis.set_ticklabels(['unreliable', 'reliable'])
+        plt.savefig(model_dir + 'conf_matr.png')
+
+        # Save metrics as JSON
+        with open(model_dir + 'metrics.json', "w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=4, ensure_ascii=False)
+
         print("Done!")
-
-

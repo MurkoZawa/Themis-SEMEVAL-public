@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from peft import LoraConfig, get_peft_model
 from transformers import AutoImageProcessor
 #from transformers import BitsAndBytesConfig
@@ -45,10 +45,10 @@ class Themis(nn.Module):
         self.lm_model = lm_model
         
         self.hinner_dim = self.lm_model.config.hidden_size
-        self.emb = self.lm_model.model.embed_tokens
+        self.emb = self.lm_model.model.embed_tokens #self.lm_model.base_model.wte
         self.lm_head = self.lm_model.lm_head
-        self.h = self.lm_model.model.layers
-
+        self.h = self.lm_model.model.layers # self.lm_model.base_model.h
+     
 
         self.drop = nn.Dropout(0.1)
         #print(self.img_embed_model.config)
@@ -82,18 +82,21 @@ class Themis(nn.Module):
         
         text_embeds = self.emb(texts["input_ids"])
         text_embeds = text_embeds.view(text_embeds.shape[0], text_embeds.shape[-2],  text_embeds.shape[-1])
+        
         #print(text_embeds.shape)
         #add the cls token to the text embeddings
         #cls_tokens = repeat(self.cls_token, '1 1 d -> b 1 d', b = b)
         
         #stack the image features and text features
         x = torch.cat((image_features, text_embeds), dim=1)
+
         if self.merge_tokens is not None:
             x = self.patch_merger(x)
         #pass through the module list h
         for i in range(len(self.h)):
             x = self.h[i](x)[0]
         x = x.mean(dim=1)
+        
         #print(x.shape)
         #pass through the lm head
         x = self.lm_head(x)
@@ -112,10 +115,19 @@ def get_Themis(
         merge_tokens = None):
 
 
-    
+
     #model = AutoModelForCausalLM.from_pretrained("microsoft/phi-2", torch_dtype="auto", trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(name_llm, device_map="cuda", trust_remote_code=True)
     tokenizer = AutoTokenizer.from_pretrained(name_llm, trust_remote_code=True)
+
+    # prompt = "Hey, are you conscious? Can you talk to me?"
+    # inputs = tokenizer(prompt, return_tensors="pt")
+
+    # # Generate
+    # generate_ids = model.generate(inputs.input_ids, max_length=2048)
+    # print(model.config)
+    # print(generate_ids.shape)
+    # exit()
     if 'clip' in name_img_embed:
         img_embed = CLIPVisionModel.from_pretrained(name_img_embed,  device_map="cuda", trust_remote_code=True)
     elif 'instruct' in name_img_embed:
@@ -177,3 +189,95 @@ def get_Themis(
 
 
     return themis, tokenizer, processor
+    
+    
+import torch
+import torch.nn as nn
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def print_trainable_parameters(model):
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    print(f"Trainable parameters: {len(trainable_params)}")
+    
+
+class Themis_text(nn.Module):
+    def __init__(self, lm_model, is_pythia = False, merge_tokens = None):
+        super(Themis_text, self).__init__()
+        self.lm_model = lm_model
+        
+        self.hinner_dim = self.lm_model.config.hidden_size
+        self.emb = self.lm_model.model.embed_tokens  # Token embedding layer
+        self.lm_head = self.lm_model.lm_head  # Language model head
+        self.h = self.lm_model.model.layers  # Transformer layers
+
+        self.drop = nn.Dropout(0.1)
+        self.layernorm = nn.LayerNorm(self.hinner_dim)
+        
+         #self.cls_token = nn.Parameter(torch.randn(1, 1, self.hinner_dim))
+        self.merge_tokens = merge_tokens
+        if merge_tokens is not None:
+            n_patches = merge_tokens
+            self.patch_merger = PatchMerger(self.hinner_dim, n_patches)
+        self.layernorm = nn.LayerNorm(self.hinner_dim)
+        
+    def forward(self, texts):
+        # Get the text embeddings from the model's token embedding layer
+        text_embeds = self.emb(texts["input_ids"])
+        text_embeds = text_embeds.view(text_embeds.shape[0], text_embeds.shape[-2], text_embeds.shape[-1])
+        
+        # Pass the text embeddings through the transformer layers
+        x = text_embeds
+        for layer in self.h:
+            x = layer(x)[0]
+        
+        x = x.mean(dim=1)  # Pool the output of all layers
+
+        # Pass through the lm_head for classification
+        x = self.lm_head(x)
+        
+        return x
+
+def get_Themis_text(
+        name_llm="distilgpt2",
+        use_lora=False,
+        lora_alpha=8,
+        lora_r=16,
+        lora_dropout=0.2,
+        merge_tokens=None):
+    # Load the language model and tokenizer
+    model = AutoModelForCausalLM.from_pretrained(name_llm, device_map="cuda", trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(name_llm, trust_remote_code=True)
+
+    # Add a model head for classification
+    new_head = torch.nn.Sequential(
+        torch.nn.LayerNorm(model.config.hidden_size),
+        torch.nn.Linear(model.config.hidden_size, 1, bias=False),
+        torch.nn.Sigmoid()
+    )
+
+    # Freeze the model parameters
+    for param in model.parameters():
+        param.requires_grad = False
+    
+    if use_lora:
+        # Configure LoRA (Low-Rank Adaptation) for fine-tuning
+        from peft import LoraConfig, get_peft_model
+        target_modules = ["q_proj", "k_proj", "v_proj", "out_proj", "fc_in", "fc_out", "wte", "embed_tokens"]
+        config = LoraConfig(
+            r=lora_r, lora_alpha=lora_alpha, target_modules=target_modules, lora_dropout=lora_dropout, bias="none", task_type="CAUSAL_LM"
+        )
+        model = get_peft_model(model, config)
+        model = model.base_model.model
+
+    # Replace the original language model head with the new head
+    model.lm_head = new_head
+
+    # Initialize ThemisText without image embedding
+    themis_text = Themis_text(model)
+    
+    # Unfreeze the norm layers if necessary
+    for name, param in themis_text.named_parameters():
+        if "norm" in name:
+            param.requires_grad = True
+
+    return themis_text, tokenizer
